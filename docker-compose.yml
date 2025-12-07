@@ -1,0 +1,81 @@
+services:
+  db_energo:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: energo
+      POSTGRES_USER: energo
+      POSTGRES_PASSWORD: energo
+    volumes:
+      - postgres_data_energo:/var/lib/postgresql/data
+    ports:
+      - "7010:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U energo -d energo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend_energo:
+    build: ./backend
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DB_ENGINE: postgres
+      POSTGRES_DB: energo
+      POSTGRES_USER: energo
+      POSTGRES_PASSWORD: energo
+      POSTGRES_HOST: db_energo
+    volumes:
+      - ./backend:/app
+    ports:
+      - "7011:8100"
+    depends_on:
+      db_energo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend_energo:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:7011/api/
+    ports:
+      - "7012:80"
+    depends_on:
+      - backend_energo
+    restart: unless-stopped
+
+  backend-tests:
+    profiles: ["test"]
+    build: ./backend
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DB_ENGINE: postgres
+      POSTGRES_DB: energo
+      POSTGRES_USER: energo
+      POSTGRES_PASSWORD: energo
+      POSTGRES_HOST: db_energo
+    command: sh -c "python manage.py migrate && python manage.py test"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db_energo:
+        condition: service_healthy
+
+  frontend-tests:
+    profiles: ["test"]
+    build:
+      context: ./frontend
+      target: build
+      args:
+        VITE_API_URL: http://localhost:7011/api/
+    environment:
+      CI: "1"
+    working_dir: /app
+    command: ["npm", "run", "test", "--", "--run"]
+
+volumes:
+  postgres_data_energo:
