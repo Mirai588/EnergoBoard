@@ -17,7 +17,7 @@ jobs:
           POSTGRES_USER: energo
           POSTGRES_PASSWORD: energo
         options: >-
-          --health-cmd pg_isready -U energo -d energo
+          --health-cmd "pg_isready -U energo -d energo"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
@@ -66,14 +66,9 @@ jobs:
           POSTGRES_PORT: 5432
 
       - name: Report coverage
-        run: uv run coverage report && uv run coverage xml
-
-      - name: Upload coverage to artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: backend/coverage.xml
-          if-no-files-found: ignore
+        run: |
+          uv run coverage report
+          uv run coverage xml -o ../coverage.xml
 
   frontend-fuzz:
     runs-on: ubuntu-latest
@@ -94,12 +89,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run fuzz tests with coverage
-        run: npx vitest run --reporter=verbose --reporter=junit --outputFile=junit.xml
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-test-results
-          path: frontend/junit.xml
-          if-no-files-found: ignore
+      - name: Run fuzz tests
+        run: npx vitest run --reporter=verbose
