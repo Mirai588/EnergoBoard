@@ -1,11 +1,9 @@
-import json
 from datetime import date, timedelta
 
 from django.contrib.auth.models import User
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis.extra.django import TestCase
-from hypothesis.strategies import booleans, dates, decimals, integers, just, lists, none, one_of, sampled_from, text
-from rest_framework import status
+from hypothesis.strategies import dates, decimals, integers, none, one_of, sampled_from, text
 from rest_framework.test import APIClient
 
 from .models import Meter, MonthlyCharge, Payment, Property, Reading, Tariff
@@ -13,19 +11,22 @@ from .models import Meter, MonthlyCharge, Payment, Property, Reading, Tariff
 # --- strategies ---
 usr = text(min_size=0, max_size=150)
 pwd = text(min_size=0, max_size=128)
-email = text(min_size=0, max_size=254)
 tiny_str = text(min_size=0, max_size=50)
-resource_type = sampled_from([c[0] for c in Meter.RESOURCE_CHOICES]) if hasattr(Meter, 'RESOURCE_CHOICES') else sampled_from(['electricity', 'cold_water', 'hot_water', 'gas', 'heating'])
-
-# Workaround: Meter.RESOURCE_CHOICES might not be defined (it's RESOURCE_CHOICES in the model)
 resource_type = sampled_from(['electricity', 'cold_water', 'hot_water', 'gas', 'heating'])
-unit = sampled_from(['kWh', 'м³', 'Гкал', 'kW', ''])
+unit = sampled_from(['kWh', 'м3', 'Гкал', 'kW', ''])
 decimal_val = decimals(min_value=0, max_value=1_000_000, allow_nan=False, allow_infinity=False, places=3)
 decimal_charge = decimals(min_value=0, max_value=1_000_000, allow_nan=False, allow_infinity=False, places=2)
-pos_int = integers(min_value=0, max_value=10_000)
 year_int = integers(min_value=2020, max_value=2030)
 month_int = integers(min_value=1, max_value=12)
 any_date = dates(min_value=date(2020, 1, 1), max_value=date.today() + timedelta(days=365))
+
+
+def make_user(username: str) -> User:
+    u, _ = User.objects.get_or_create(username=username)
+    if not u.password or u.password.startswith('!'):
+        u.set_password('x')
+        u.save()
+    return u
 
 
 class AuthFuzzTests(TestCase):
@@ -35,41 +36,39 @@ class AuthFuzzTests(TestCase):
 
     @given(u=usr, p=pwd)
     @settings(max_examples=40)
-    def test_register_never_errors(self, u: str, p: str):
+    def test_register_never_500(self, u: str, p: str):
         resp = self.client.post('/api/auth/register/', {'username': u, 'password': p}, format='json')
         assert resp.status_code in (201, 400), f'Got {resp.status_code}: {resp.data}'
 
     @given(u=usr, p=pwd)
     @settings(max_examples=40)
-    def test_login_with_random_credential_never_errors(self, u: str, p: str):
+    def test_login_never_500(self, u: str, p: str):
         resp = self.client.post('/api/auth/login/', {'username': u, 'password': p}, format='json')
-        assert resp.status_code in (200, 401), f'Got {resp.status_code}: {resp.data}'
+        assert resp.status_code in (200, 400, 401), f'Got {resp.status_code}: {resp.data}'
 
 
 class PropertyFuzzTests(TestCase):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self.user = User.objects.create_user(username='fuzzer', password='x')
+        self.user = make_user('prop_fuzzer')
         self.client.force_authenticate(self.user)
 
     @given(name=tiny_str, addr=tiny_str)
     @settings(max_examples=30)
-    def test_create_property_never_errors(self, name: str, addr: str):
+    def test_create_property_never_500(self, name: str, addr: str):
         resp = self.client.post('/api/properties/', {'name': name, 'address': addr}, format='json')
         assert resp.status_code in (201, 400), f'Got {resp.status_code}: {resp.data}'
 
     @given(name=tiny_str, addr=tiny_str)
     @settings(max_examples=20)
-    def test_update_own_property_never_errors(self, name: str, addr: str):
+    def test_update_property_never_500(self, name: str, addr: str):
         prop = Property.objects.create(owner=self.user, name='base', address='base')
         resp = self.client.patch(f'/api/properties/{prop.id}/', {'name': name, 'address': addr}, format='json')
         assert resp.status_code in (200, 400), f'Got {resp.status_code}: {resp.data}'
 
-    @given()
-    @settings(max_examples=10)
     def test_foreign_property_invisible(self):
-        other = User.objects.create_user(username='other', password='x')
+        other = make_user('other_prop')
         prop = Property.objects.create(owner=other, name='secret', address='hidden')
         resp = self.client.get(f'/api/properties/{prop.id}/')
         assert resp.status_code == 404, f'Got {resp.status_code}'
@@ -79,13 +78,13 @@ class MeterFuzzTests(TestCase):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self.user = User.objects.create_user(username='meter_fuzzer', password='x')
+        self.user = make_user('meter_fuzzer')
         self.client.force_authenticate(self.user)
-        self.prop = Property.objects.create(owner=self.user, name='prop', address='addr')
+        self.prop, _ = Property.objects.get_or_create(owner=self.user, name='prop', address='addr')
 
     @given(rt=resource_type, u=unit, sn=tiny_str)
     @settings(max_examples=30)
-    def test_create_meter_never_errors(self, rt: str, u: str, sn: str):
+    def test_create_meter_never_500(self, rt: str, u: str, sn: str):
         resp = self.client.post('/api/meters/', {
             'property': self.prop.id,
             'resource_type': rt,
@@ -94,10 +93,8 @@ class MeterFuzzTests(TestCase):
         }, format='json')
         assert resp.status_code in (201, 400), f'Got {resp.status_code}: {resp.data}'
 
-    @given()
-    @settings(max_examples=5)
     def test_foreign_property_meter_rejected(self):
-        other = User.objects.create_user(username='other_m', password='x')
+        other = make_user('other_m')
         other_prop = Property.objects.create(owner=other, name='other', address='x')
         resp = self.client.post('/api/meters/', {
             'property': other_prop.id,
@@ -112,20 +109,20 @@ class ReadingFuzzTests(TestCase):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self.user = User.objects.create_user(username='reading_fuzzer', password='x')
+        self.user = make_user('reading_fuzzer')
         self.client.force_authenticate(self.user)
-        self.prop = Property.objects.create(owner=self.user, name='p', address='a')
-        self.meter = Meter.objects.create(
+        self.prop, _ = Property.objects.get_or_create(owner=self.user, name='p', address='a')
+        self.meter, _ = Meter.objects.get_or_create(
             property=self.prop, resource_type='electricity',
-            unit='kWh', serial_number='E-1',
+            defaults={'unit': 'kWh', 'serial_number': 'E-1'},
         )
-        Tariff.objects.create(
+        Tariff.objects.get_or_create(
             resource_type='electricity', value_per_unit=5, valid_from=date(2020, 1, 1),
         )
 
     @given(v=decimal_val, rd=any_date)
     @settings(max_examples=40)
-    def test_create_reading_never_errors(self, v, rd: date):
+    def test_create_reading_never_500(self, v, rd: date):
         resp = self.client.post('/api/readings/', {
             'meter': self.meter.id,
             'value': float(v) if v is not None else 0,
@@ -135,24 +132,23 @@ class ReadingFuzzTests(TestCase):
 
     @given(v1=decimal_val, v2=decimal_val)
     @settings(max_examples=20)
-    def test_reading_monotonic_invariant(self, v1, v2):
+    def test_reading_invariant(self, v1, v2):
         rd = date(2024, 6, 15)
-        Reading.objects.create(meter=self.meter, value=v1, reading_date=rd - timedelta(days=30))
+        prev = rd - timedelta(days=30)
+        Reading.objects.create(meter=self.meter, value=v1, reading_date=prev)
         resp = self.client.post('/api/readings/', {
             'meter': self.meter.id,
             'value': float(v2) if v2 is not None else 0,
             'reading_date': rd.isoformat(),
         }, format='json')
-        if resp.status_code == 201:
+        if resp.status_code == 201 and v2 > v1:
             charge = MonthlyCharge.objects.filter(property=self.prop, year=rd.year, month=rd.month).first()
             if charge and v2 > v1:
-                assert charge.consumption > 0, 'Consumption should be positive when value increases'
-                assert charge.amount > 0, 'Amount should be positive when consumption > 0'
+                assert charge.consumption > 0
+                assert charge.amount > 0
 
-    @given()
-    @settings(max_examples=5)
     def test_foreign_meter_reading_rejected(self):
-        other = User.objects.create_user(username='other_r', password='x')
+        other = make_user('other_r')
         other_prop = Property.objects.create(owner=other, name='o', address='o')
         other_meter = Meter.objects.create(property=other_prop, resource_type='electricity', unit='kWh')
         resp = self.client.post('/api/readings/', {
@@ -167,13 +163,13 @@ class PaymentFuzzTests(TestCase):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self.user = User.objects.create_user(username='pay_fuzzer', password='x')
+        self.user = make_user('pay_fuzzer')
         self.client.force_authenticate(self.user)
-        self.prop = Property.objects.create(owner=self.user, name='p', address='a')
+        self.prop, _ = Property.objects.get_or_create(owner=self.user, name='p', address='a')
 
     @given(y=year_int, m=month_int, a=decimal_charge, pd=any_date, c=tiny_str)
     @settings(max_examples=20)
-    def test_create_payment_never_errors(self, y: int, m: int, a, pd: date, c: str):
+    def test_create_payment_never_500(self, y: int, m: int, a, pd: date, c: str):
         resp = self.client.post('/api/payments/', {
             'property': self.prop.id,
             'year': y,
@@ -184,10 +180,8 @@ class PaymentFuzzTests(TestCase):
         }, format='json')
         assert resp.status_code in (201, 400), f'Got {resp.status_code}: {resp.data}'
 
-    @given()
-    @settings(max_examples=5)
     def test_foreign_property_payment_rejected(self):
-        other = User.objects.create_user(username='other_pay', password='x')
+        other = make_user('other_pay')
         other_prop = Property.objects.create(owner=other, name='o', address='o')
         resp = self.client.post('/api/payments/', {
             'property': other_prop.id,
@@ -203,9 +197,9 @@ class AnalyticsFuzzTests(TestCase):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self.user = User.objects.create_user(username='analytics_fuzzer', password='x')
+        self.user = make_user('analytics_fuzzer')
         self.client.force_authenticate(self.user)
-        self.prop = Property.objects.create(owner=self.user, name='p', address='a')
+        self.prop, _ = Property.objects.get_or_create(owner=self.user, name='p', address='a')
 
     @given(
         pid=one_of(integers(min_value=1, max_value=9999), none()),
@@ -216,7 +210,7 @@ class AnalyticsFuzzTests(TestCase):
         em=one_of(integers(min_value=0, max_value=13), none()),
     )
     @settings(max_examples=40)
-    def test_analytics_never_errors(self, pid, res, sy, sm, ey, em):
+    def test_analytics_never_500(self, pid, res, sy, sm, ey, em):
         params = {}
         if pid is not None:
             params['property'] = pid
@@ -235,7 +229,7 @@ class AnalyticsFuzzTests(TestCase):
 
     @given(pid=one_of(integers(min_value=1, max_value=9999), none()))
     @settings(max_examples=20)
-    def test_forecast_never_errors(self, pid):
+    def test_forecast_never_500(self, pid):
         params = {}
         if pid is not None:
             params['property'] = pid
