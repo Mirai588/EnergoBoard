@@ -56,7 +56,10 @@ jobs:
           POSTGRES_PORT: 5432
 
       - name: Run fuzz tests with coverage
-        run: uv run coverage run manage.py test core.fuzz_tests --verbosity=2
+        run: |
+          uv run coverage run manage.py test core.fuzz_tests --verbosity=2 && \
+          uv run coverage report && \
+          uv run coverage xml -o ../coverage.xml
         env:
           DB_ENGINE: postgres
           POSTGRES_DB: energo
@@ -64,11 +67,6 @@ jobs:
           POSTGRES_PASSWORD: energo
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
-
-      - name: Report coverage
-        run: |
-          uv run coverage report
-          uv run coverage xml -o ../coverage.xml
 
   frontend-fuzz:
     runs-on: ubuntu-latest
