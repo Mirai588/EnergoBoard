@@ -411,19 +411,19 @@ export function AnalyticsPage({ selectedProperty, properties }: Props) {
               <div className="stat-grid">
                 <Surface className="stat-card">
                   <p className="subtitle">Сумма за период</p>
-                  <h2>{(data.summary.total_amount ?? 0).toFixed(2)} ₽</h2>
+                  <h2>{(Number(data.summary.total_amount) || 0).toFixed(2)} ₽</h2>
                   <p className="subtitle">Все начисления выбранного периода</p>
                 </Surface>
                 <Surface className="stat-card">
                   <p className="subtitle">Среднее в день</p>
                   <h2>
-                    {(averageDailyValue ?? 0).toFixed(2)} {averageDailyUnit}
+                    {(Number(averageDailyValue) || 0).toFixed(2)} {averageDailyUnit}
                   </h2>
                   <p className="subtitle">По {averageDaily.days} дням выбранного периода</p>
                 </Surface>
                 <Surface className="stat-card">
                   <p className="subtitle">Прогноз, ₽</p>
-                  <h2>{(data.forecast_amount ?? 0).toFixed(2)}</h2>
+                  <h2>{(Number(data.forecast_amount) || 0).toFixed(2)}</h2>
                   <p className="subtitle">Оценка по истории выбранных объектов</p>
                 </Surface>
               </div>
@@ -489,7 +489,7 @@ export function AnalyticsPage({ selectedProperty, properties }: Props) {
                     <div key={res.resource_type} className="resource-card">
                       <p className="subtitle">{RESOURCE_LABELS[res.resource_type] || res.resource_type}</p>
                       <h3 className="metric-value">
-                        {(metric === "amount" ? res.total_amount : res.total_consumption).toFixed(2)} {metric === "amount" ? "₽" : res.unit || ""}
+                        {(Number(metric === "amount" ? res.total_amount : res.total_consumption) || 0).toFixed(2)} {metric === "amount" ? "₽" : res.unit || ""}
                       </h3>
                       <p className="subtitle">{metric === "amount" ? "Сумма" : "Объем"} за период</p>
                     </div>
@@ -569,10 +569,10 @@ export function AnalyticsPage({ selectedProperty, properties }: Props) {
                           <td>{row.property__name}</td>
                           <td>
                             {metric === "consumption"
-                              ? `${row.total_consumption.toFixed(2)}`
+                              ? `${(Number(row.total_consumption) || 0).toFixed(2)}`
                               : "—"}
                           </td>
-                          <td>{row.total_amount.toFixed(2)} ₽</td>
+                          <td>{(Number(row.total_amount) || 0).toFixed(2)} ₽</td>
                         </tr>
                       ))}
                     </tbody>
