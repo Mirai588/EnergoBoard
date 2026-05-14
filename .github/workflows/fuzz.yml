@@ -87,5 +87,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run fuzz tests
-        run: npx vitest run --reporter=verbose
+      - name: Run fuzz tests with coverage
+        run: npx vitest run --reporter=verbose --coverage
