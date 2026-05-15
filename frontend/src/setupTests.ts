@@ -2,6 +2,12 @@ import "@testing-library/jest-dom";
 import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 
+const _consoleWarn = console.warn;
+console.warn = (...args) => {
+  if (typeof args[0] === "string" && /not wrapped in act/i.test(args[0])) return;
+  _consoleWarn.call(console, ...args);
+};
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();

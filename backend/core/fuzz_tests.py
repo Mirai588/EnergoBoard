@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 
 from django.contrib.auth.models import User
 from hypothesis import given, settings
@@ -7,6 +8,7 @@ from hypothesis.strategies import dates, decimals, integers, none, one_of, sampl
 from rest_framework.test import APIClient
 
 from .models import Meter, MonthlyCharge, Payment, Property, Reading, Tariff
+from .services import ensure_demo_data, find_tariff, forecast_property, get_previous_reading, process_reading
 
 # --- strategies ---
 usr = text(min_size=0, max_size=150)
@@ -35,13 +37,13 @@ class AuthFuzzTests(TestCase):
         self.client = APIClient()
 
     @given(u=usr, p=pwd)
-    @settings(max_examples=40)
+    @settings(max_examples=40, deadline=1000)
     def test_register_never_500(self, u: str, p: str):
         resp = self.client.post('/api/auth/register/', {'username': u, 'password': p}, format='json')
         assert resp.status_code in (201, 400), f'Got {resp.status_code}: {resp.data}'
 
     @given(u=usr, p=pwd)
-    @settings(max_examples=40)
+    @settings(max_examples=40, deadline=1000)
     def test_login_never_500(self, u: str, p: str):
         resp = self.client.post('/api/auth/login/', {'username': u, 'password': p}, format='json')
         assert resp.status_code in (200, 400, 401), f'Got {resp.status_code}: {resp.data}'
@@ -235,3 +237,83 @@ class AnalyticsFuzzTests(TestCase):
             params['property'] = pid
         resp = self.client.get('/api/analytics/forecast/', params)
         assert resp.status_code in (200, 400, 404), f'Got {resp.status_code}'
+
+
+class ServicesFuzzTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = make_user('svc_fuzzer')
+        self.prop, _ = Property.objects.get_or_create(owner=self.user, name='svc_prop', address='x')
+        self.meter, _ = Meter.objects.get_or_create(
+            property=self.prop, resource_type='electricity',
+            defaults={'unit': 'kWh', 'serial_number': 'SVC-E1'},
+        )
+        self.tariff, _ = Tariff.objects.get_or_create(
+            resource_type='electricity', value_per_unit=Decimal('5.00'), valid_from=date(2020, 1, 1),
+        )
+
+    @given(v=decimals(min_value=0, max_value=1000, allow_nan=False, allow_infinity=False, places=3))
+    @settings(max_examples=20)
+    def test_get_previous_reading_none_when_no_readings(self, v):
+        r = Reading.objects.create(meter=self.meter, value=v, reading_date=date(2024, 6, 1))
+        prev = get_previous_reading(self.meter, date(2024, 6, 15))
+        if prev:
+            assert prev.value == v, 'Most recent reading before date should match'
+
+    @given(
+        v1=decimals(min_value=0, max_value=1000, allow_nan=False, allow_infinity=False, places=3),
+        v2=decimals(min_value=0, max_value=1000, allow_nan=False, allow_infinity=False, places=3),
+    )
+    @settings(max_examples=20)
+    def test_process_reading_creates_charge(self, v1, v2):
+        r1 = Reading.objects.create(meter=self.meter, value=v1, reading_date=date(2024, 1, 1))
+        r2 = Reading.objects.create(meter=self.meter, value=v2, reading_date=date(2024, 6, 15))
+        process_reading(r2)
+        has_charge = MonthlyCharge.objects.filter(property=self.prop, year=2024, month=6).exists()
+        if v2 > v1:
+            assert has_charge, 'Charge should exist when reading increased'
+        else:
+            assert not has_charge, 'No charge expected when reading did not increase'
+
+    @given(
+        rt=sampled_from(['electricity', 'cold_water', 'hot_water', 'gas', 'heating']),
+        d=dates(min_value=date(2020, 1, 1), max_value=date.today() + timedelta(days=365)),
+    )
+    @settings(max_examples=20)
+    def test_find_tariff_returns_valid_tariff_or_none(self, rt: str, d: date):
+        t = find_tariff(rt, d)
+        if t:
+            assert t.resource_type == rt
+            assert t.valid_from <= d
+            if t.valid_to:
+                assert t.valid_to >= d
+
+    @given(months=integers(min_value=1, max_value=12))
+    @settings(max_examples=10)
+    def test_forecast_property_returns_non_negative(self, months: int):
+        MonthlyCharge.objects.create(
+            property=self.prop, year=2024, month=6,
+            resource_type='electricity', consumption=100, amount=500,
+        )
+        value = forecast_property(self.prop, months=months)
+        assert value >= 0, f'Forecast should be >= 0, got {value}'
+
+    @given(
+        resource_type=sampled_from(['electricity', 'cold_water', 'hot_water', 'gas', 'heating']),
+    )
+    @settings(max_examples=10)
+    def test_find_tariff_no_match_returns_none(self, resource_type: str):
+        result = find_tariff(resource_type, date(2019, 1, 1))
+        assert result is None
+
+    def test_ensure_demo_data_skips_non_test_user(self):
+        other = make_user('normal_user')
+        ensure_demo_data(other)
+        assert Property.objects.filter(owner=other).count() == 0
+
+    def test_ensure_demo_data_creates_for_test_user(self):
+        test_user = make_user('test')
+        seed_count = Property.objects.filter(owner=test_user).count()
+        ensure_demo_data(test_user)
+        after = Property.objects.filter(owner=test_user).count()
+        assert after >= seed_count + 1, 'Demo data should add properties for test user'

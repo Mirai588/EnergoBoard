@@ -27,7 +27,7 @@ export function MetersPage({ selectedProperty, properties, onSelectProperty }: P
 
   useEffect(() => {
     if (selectedProperty) {
-      api.get("meters/", { params: { property: selectedProperty } }).then(({ data }) => setMeters(data));
+      api.get("meters/", { params: { property: selectedProperty } }).then(({ data }) => setMeters(Array.isArray(data) ? data : []));
     } else {
       setMeters([]);
     }
