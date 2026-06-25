@@ -21,6 +21,8 @@ from rest_framework import routers
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from core.views import (
+    AdminDashboardViewSet,
+    AdminUserViewSet,
     AnalyticsViewSet,
     LoginView,
     MeterViewSet,
@@ -41,10 +43,15 @@ router.register(r"monthly-charges", MonthlyChargeViewSet, basename="monthlycharg
 router.register(r"payments", PaymentViewSet, basename="payment")
 router.register(r"analytics", AnalyticsViewSet, basename="analytics")
 
+admin_router = routers.DefaultRouter()
+admin_router.register(r"users", AdminUserViewSet, basename="admin-user")
+admin_router.register(r"dashboard", AdminDashboardViewSet, basename="admin-dashboard")
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/auth/register/", RegistrationView.as_view(), name="register"),
     path("api/auth/login/", LoginView.as_view(), name="token_obtain_pair"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/", include(router.urls)),
+    path("api/admin/", include(admin_router.urls)),
 ]

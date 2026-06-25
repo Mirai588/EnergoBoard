@@ -13,7 +13,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "password", "email"]
+        fields = ["id", "username", "password", "email", "is_staff"]
+        read_only_fields = ["is_staff"]
 
     def create(self, validated_data):
         user = User.objects.create_user(
@@ -22,6 +23,30 @@ class UserSerializer(serializers.ModelSerializer):
             password=validated_data["password"],
         )
         return user
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    properties_count = serializers.SerializerMethodField()
+    meters_count = serializers.SerializerMethodField()
+    readings_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "is_staff", "is_active",
+            "date_joined", "last_login",
+            "properties_count", "meters_count", "readings_count",
+        ]
+        read_only_fields = fields
+
+    def get_properties_count(self, obj):
+        return obj.properties.count()
+
+    def get_meters_count(self, obj):
+        return Meter.objects.filter(property__owner=obj).count()
+
+    def get_readings_count(self, obj):
+        return Reading.objects.filter(meter__property__owner=obj).count()
 
 
 class PropertySerializer(serializers.ModelSerializer):

@@ -1,3 +1,5 @@
+export { AdminDashboard } from "./AdminDashboard";
+export { AdminUsersPage } from "./AdminUsersPage";
 export { AuthPage } from "./AuthPage";
 export { Dashboard } from "./Dashboard";
 export { PropertiesPage } from "./PropertiesPage";

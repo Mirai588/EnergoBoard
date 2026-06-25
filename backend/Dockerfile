@@ -13,4 +13,4 @@ COPY . .
 
 EXPOSE 8100
 
-CMD ["sh", "-c", "python manage.py migrate && python manage.py seedtestdata && python manage.py runserver 0.0.0.0:8100"]
+CMD ["sh", "-c", "python manage.py migrate && python manage.py seedtestdata && gunicorn backend.wsgi:application --bind 0.0.0.0:8100 --workers 4"]

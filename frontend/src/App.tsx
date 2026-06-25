@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import api, { authApi } from "./api";
 import {
+  AdminDashboard,
+  AdminUsersPage,
   AnalyticsPage,
   AuthPage,
   Dashboard,
@@ -156,6 +158,19 @@ function AppShell() {
                 </nav>
               </div>
             ))}
+            {user?.is_staff && (
+              <div className="sidebar-section">
+                <p className="section-title">Администрирование</p>
+                <nav className="nav-links">
+                  <NavLink to="/admin" end onClick={() => setSidebarOpen(false)}>
+                    Панель управления
+                  </NavLink>
+                  <NavLink to="/admin/users" onClick={() => setSidebarOpen(false)}>
+                    Пользователи
+                  </NavLink>
+                </nav>
+              </div>
+            )}
             <div className="sidebar-note">
               Управляйте объектами, приборами и показаниями, анализируйте начисления и формируйте удобные панели.
             </div>
@@ -282,6 +297,12 @@ function AppShell() {
                   )
                 }
               />
+              {user?.is_staff && (
+                <>
+                  <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/admin/users" element={<AdminUsersPage />} />
+                </>
+              )}
               <Route path="*" element={<Navigate to={authed ? "/" : "/auth"} replace />} />
             </Routes>
           </div>

@@ -1,9 +1,7 @@
 from datetime import date
 
-from datetime import date
-
 from django.contrib.auth.models import User
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -11,7 +9,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import Meter, MonthlyCharge, Payment, Property, Reading, Tariff
+from .permissions import IsAdminUser
 from .serializers import (
+    AdminUserSerializer,
     LoginSerializer,
     MeterSerializer,
     MonthlyChargeSerializer,
@@ -53,6 +53,8 @@ class PropertyViewSet(viewsets.ModelViewSet):
     serializer_class = PropertySerializer
 
     def get_queryset(self):
+        if self.request.user.is_staff:
+            return Property.objects.all()
         return Property.objects.filter(owner=self.request.user)
 
 
@@ -60,7 +62,10 @@ class MeterViewSet(viewsets.ModelViewSet):
     serializer_class = MeterSerializer
 
     def get_queryset(self):
-        qs = Meter.objects.filter(property__owner=self.request.user)
+        if self.request.user.is_staff:
+            qs = Meter.objects.all()
+        else:
+            qs = Meter.objects.filter(property__owner=self.request.user)
         property_id = self.request.query_params.get("property")
         if property_id:
             qs = qs.filter(property_id=property_id)
@@ -76,7 +81,10 @@ class ReadingViewSet(viewsets.ModelViewSet):
     serializer_class = ReadingSerializer
 
     def get_queryset(self):
-        qs = Reading.objects.filter(meter__property__owner=self.request.user)
+        if self.request.user.is_staff:
+            qs = Reading.objects.all()
+        else:
+            qs = Reading.objects.filter(meter__property__owner=self.request.user)
         property_id = self.request.query_params.get("meter__property")
         meter_id = self.request.query_params.get("meter")
         if property_id:
@@ -90,7 +98,10 @@ class MonthlyChargeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MonthlyChargeSerializer
 
     def get_queryset(self):
-        qs = MonthlyCharge.objects.filter(property__owner=self.request.user)
+        if self.request.user.is_staff:
+            qs = MonthlyCharge.objects.all()
+        else:
+            qs = MonthlyCharge.objects.filter(property__owner=self.request.user)
         property_id = self.request.query_params.get("property")
         year = self.request.query_params.get("year")
         month = self.request.query_params.get("month")
@@ -107,6 +118,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentSerializer
 
     def get_queryset(self):
+        if self.request.user.is_staff:
+            return Payment.objects.all()
         return Payment.objects.filter(property__owner=self.request.user)
 
 
@@ -120,7 +133,10 @@ class AnalyticsViewSet(viewsets.ViewSet):
         end_year = int(request.query_params.get("end_year", date.today().year))
         end_month = int(request.query_params.get("end_month", 12))
 
-        props_qs = Property.objects.filter(owner=request.user)
+        if request.user.is_staff:
+            props_qs = Property.objects.all()
+        else:
+            props_qs = Property.objects.filter(owner=request.user)
         selected_ids = []
         if properties_param:
             selected_ids = [int(p) for p in properties_param.split(",") if p]
@@ -267,8 +283,34 @@ class AnalyticsViewSet(viewsets.ViewSet):
         if not property_id:
             return Response({"detail": "property param required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            prop = Property.objects.get(id=property_id, owner=request.user)
+            if request.user.is_staff:
+                prop = Property.objects.get(id=property_id)
+            else:
+                prop = Property.objects.get(id=property_id, owner=request.user)
         except Property.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
         forecast_value = float(forecast_property(prop))
         return Response({"forecast_amount": forecast_value})
+
+
+class AdminUserViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = User.objects.all().order_by("-date_joined")
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAdminUser]
+
+
+class AdminDashboardViewSet(viewsets.ViewSet):
+    permission_classes = [IsAdminUser]
+
+    def list(self, request):
+        return Response({
+            "total_users": User.objects.count(),
+            "total_properties": Property.objects.count(),
+            "total_meters": Meter.objects.count(),
+            "total_readings": Reading.objects.count(),
+            "total_charges": MonthlyCharge.objects.count(),
+            "total_payments": Payment.objects.count(),
+            "recent_users": AdminUserSerializer(
+                User.objects.all().order_by("-date_joined")[:5], many=True
+            ).data,
+        })
